@@ -5,6 +5,7 @@ import requests
 import get_elements_around as gea
 sys.path.append('../../include')
 import ZHVHelper as zhvh 
+import shapes
 
 try:
     from tqdm import tqdm
@@ -43,6 +44,7 @@ for line in tqdm(dizydata):
     dhid = data["features"][0]["properties"]["zhv-dhid"]
     # Give zhv marker also the DHID
     data["features"][1]["properties"]["ZHV-DHID"] = dhid
+    data["features"][1]["properties"]["marker-color"] = "#0e86d4"
     # Modify the json to include the cooperative work
     data["cooperativeWork"] = {
                 "meta": {
@@ -76,6 +78,8 @@ for line in tqdm(dizydata):
         lon = data["features"][0]["geometry"]["coordinates"][0][0]
         lat = data["features"][0]["geometry"]["coordinates"][0][1]
         data["features"].append(feature)
+    # Replace the OSM marker (element 0) with a cross
+    data["features"][0] = shapes.generate_x_geojson(lat, lon, distance=5, properties={"color": "#0e86d4", "stroke-width": 5, "@id": osmfullid})
     zhv_markers_in_area = zhv.get_data_in_bbox(lat - 0.0005, lon - 0.0005, lat + 0.0005, lon + 0.0005)
     # Go through all marker elements and remove the marker if is has the same dhid as out variable
     for marker in zhv_markers_in_area:
