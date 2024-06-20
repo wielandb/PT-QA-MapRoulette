@@ -2,4 +2,4 @@
 data.osm
 *.pyc
 *.csv
-include/creds.json
+shared/creds.json
