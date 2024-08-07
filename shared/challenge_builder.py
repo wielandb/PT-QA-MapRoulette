@@ -5,19 +5,29 @@ import requests
 import geojson
 from turfpy.measurement import distance, bbox, centroid
 
-@dataclass
-class GeoFeature(geojson.Feature):
-    geometry: dict = field(default_factory=dict)
-    properties: dict = field(default_factory=dict)
-    id: str = None
 
-    def __init__(self, geometry, properties, id=None):
-        super().__init__(geometry=geometry, properties=properties, id=id)
+class MainGeoFeature(geojson.Feature):
+    def __init__(self, feature=None, geometry=None, properties=None, osmType=None, osmId=None):
+        # Initialize from an existing feature if provided
+        if feature:
+            print(feature)
+            geometry = feature['geometry']
+            properties = feature.get('properties', {})
+        
+        # Ensure properties is not None and is a dictionary
+        properties = properties or {}
+
+        # Add the custom @id property if osmType and osmId are provided
+        if osmType and osmId:
+            properties['@id'] = f"{osmType}/{osmId}"
+        
+        # Initialize the parent geojson.Feature class
+        super().__init__(geometry=geometry, properties=properties)
 
     @classmethod
-    def withId(cls, osmType, osmId, geometry, properties):
-        properties["@id"] = f"{osmType}/{osmId}"
-        return cls(geometry=geometry, properties=properties)
+    def withId(cls, osmType, osmId, Feature):
+        Feature['geometry']['properties']['@id'] = f"{osmType}/{osmId}"
+        return cls(feature=Feature)
 
 @dataclass
 class TagFix:
@@ -82,66 +92,46 @@ class Overpass:
             raise ValueError("Invalid return data")
         return response.json()["elements"]
 
-    def queryElementsAsGeoJSON(self, overpass_query):
-        elements = self.queryElementsRaw(overpass_query)
-        geojson_features = []
-        
-        for element in elements:
-            if element['type'] == 'node':
-                feature = geojson.Feature(
-                    geometry=geojson.Point((element['lon'], element['lat'])),
-                    properties={key: value for key, value in element.items() if key not in ['type', 'lat', 'lon']}
-                )
-            elif element['type'] == 'way':
-                coordinates = [(node['lon'], node['lat']) for node in element['geometry']]
-                feature = geojson.Feature(
-                    geometry=geojson.LineString(coordinates),
-                    properties={key: value for key, value in element.items() if key not in ['type', 'geometry']}
-                )
-            elif element['type'] == 'relation':
-                members = element.get('members', [])
-                outer_polygons = []
-                inner_polygons = []
-                
-                for member in members:
-                    if member['type'] == 'way':
-                        member_coords = [(node['lon'], node['lat']) for node in member['geometry']]
-                        if member['role'] == 'outer':
-                            outer_polygons.append(member_coords)
-                        elif member['role'] == 'inner':
-                            inner_polygons.append(member_coords)
-                
-                if outer_polygons:
-                    geometry = geojson.Polygon(outer_polygons)
-                    if inner_polygons:
-                        geometry = geojson.MultiPolygon([outer_polygons + inner_polygons])
-                    
-                    feature = geojson.Feature(
-                        geometry=geometry,
-                        properties={key: value for key, value in element.items() if key not in ['type', 'members']}
-                    )
-                else:
-                    continue  # Skip relations without outer polygons
+    def getFeatureFromOverpassElement(self, element, GeomType=None):
+        if GeomType is None:
+            if 'lat' in element or 'center' in element:
+                GeomType = "Point"
+            elif 'bounds' in element:
+                GeomType = "Polygon"
             elif 'geometry' in element:
-                geojson_type = element['geometry']['type']
-                coordinates = element['geometry']['coordinates']
-                
-                if geojson_type == 'Point':
-                    geometry = geojson.Point(coordinates)
-                elif geojson_type == 'LineString':
-                    geometry = geojson.LineString(coordinates)
-                elif geojson_type == 'Polygon':
-                    geometry = geojson.Polygon(coordinates)
-                else:
-                    continue  # Skip unsupported geometry types
-                
-                feature = geojson.Feature(
-                    geometry=geometry,
-                    properties={"@"+str(key): value for key, value in element.items() if key != 'geometry'}
-                )
+                GeomType = element['geometry']['type']
             else:
-                continue  # Skip unknown element types
-            
-            geojson_features.append(feature)
-        
-        return geojson_features
+                raise ValueError("No handleable coordinates found for element")
+
+        if GeomType == "Point":
+            if 'geometry' in element:
+                return {"type": "Feature", "geometry": geojson.Point([element['geometry']['lon'], element['geometry']['lat']], properties=element.get('tags', {})) }
+            elif 'center' in element:
+                return geojson.Point([element['center']['lon'], element['center']['lat']], properties=element.get('tags', {}))
+            else:
+                return geojson.Point([element['lon'], element['lat']], properties=element.get('tags', {}))
+        elif GeomType == "LineString":
+            return geojson.LineString([[point['lon'], point['lat']] for point in element['geometry']], properties=element.get('tags', {}))
+        elif GeomType == "Polygon":
+            if 'bounds' in element:
+                # Turn the bounds into a polygon
+                return geojson.Polygon([[
+                    [element['bounds']['minlon'], element['bounds']['minlat']],
+                    [element['bounds']['minlon'], element['bounds']['maxlat']],
+                    [element['bounds']['maxlon'], element['bounds']['maxlat']],
+                    [element['bounds']['maxlon'], element['bounds']['minlat']],
+                    [element['bounds']['minlon'], element['bounds']['minlat']]
+                ]], properties=element.get('tags', {}))
+            else:
+                # Return a polygon that is defined by the list of lists with coordinate pairs in the geometry field
+                try:
+                    return {"type": "Feature", "geometry": geojson.Polygon([element['geometry']['coordinates']], properties=element.get('tags', {})) }
+                except Exception as e:
+                    print(f"Error: {e}")
+                    return None
+        else:
+            raise ValueError("Unsupported geometry type")
+
+def makeAdditionalFeature(Feature):
+    # remove the @id property and return
+    Feature['properties'].pop('@id', None)
