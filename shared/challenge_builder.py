@@ -7,27 +7,16 @@ from turfpy.measurement import distance, bbox, centroid
 
 
 class MainGeoFeature(geojson.Feature):
-    def __init__(self, feature=None, geometry=None, properties=None, osmType=None, osmId=None):
-        # Initialize from an existing feature if provided
-        if feature:
-            print(feature)
-            geometry = feature['geometry']
-            properties = feature.get('properties', {})
-        
-        # Ensure properties is not None and is a dictionary
-        properties = properties or {}
-
-        # Add the custom @id property if osmType and osmId are provided
-        if osmType and osmId:
-            properties['@id'] = f"{osmType}/{osmId}"
-        
-        # Initialize the parent geojson.Feature class
-        super().__init__(geometry=geometry, properties=properties)
+    def __init__(self, geometry=None, properties=None):
+        self["type"] = "Feature"
+        Feature.__init__(self, geometry=geometry, properties=properties)
 
     @classmethod
-    def withId(cls, osmType, osmId, Feature):
-        Feature['geometry']['properties']['@id'] = f"{osmType}/{osmId}"
-        return cls(feature=Feature)
+    def withId(cls, geometry=None, properties=None, osmType=None, osmId=None):
+        properties['@id'] = f"{osmType}/{osmId}"
+        return cls(geometry, properties)
+
+
 
 @dataclass
 class TagFix:

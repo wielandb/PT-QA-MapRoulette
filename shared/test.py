@@ -14,7 +14,7 @@ foreach {
 }
 """
 
-resultElements = op.queryElements(opQuery)
+resultElements = op.queryElementsRaw(opQuery)
 
 fe = op.getFeatureFromOverpassElement(resultElements[3])
 
